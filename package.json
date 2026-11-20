@@ -1,0 +1,1 @@
+{"name":"content-factory","private":true,"type":"module","scripts":{"start":"node server.mjs","check":"node --check server.mjs && node --check provider-api.mjs && node --check voice-render.mjs && node --check public/providers.js && node --check public/app.js","test":"node --test"},"engines":{"node":">=22"}}

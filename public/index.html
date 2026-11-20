@@ -1,0 +1,89 @@
+<!doctype html>
+<html lang="ru">
+<head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><meta name="theme-color" content="#0c0b11"><title>КАДР — ИИ-студия видео</title><link rel="stylesheet" href="/style.css"><script type="module" src="/app.js"></script></head>
+<body>
+<aside class="sidebar">
+  <a class="brand" href="#studio"><span class="brand-icon" data-icon="film"></span><span>КАДР<small>ИИ-КОНТЕНТ ЗАВОД</small></span></a>
+  <nav aria-label="Разделы"><a href="#studio" data-page="studio"><i data-icon="grid"></i>Студия</a><a href="#projects" data-page="projects"><i data-icon="folder"></i>Проекты</a><a href="#clips" data-page="clips"><i data-icon="scissors"></i>Мои клипы</a><div class="nav-divider"></div><a href="#settings" data-page="settings"><i data-icon="key"></i>API и модели</a></nav>
+  <div class="sidebar-foot"><a href="#settings" class="connection"><span id="connection-dot"></span><div><strong id="connection-title">API не подключён</strong><small id="connection-note">Настроить провайдера</small></div><i data-icon="chevron"></i></a><p><i data-icon="harddrive"></i> Локальная студия</p></div>
+</aside>
+<main>
+  <header class="topbar"><span id="breadcrumb">Рабочее пространство <b>/</b> Студия</span><button class="button primary" id="new"><i data-icon="plus"></i> Новый проект</button></header>
+  <div class="content">
+    <section id="studio" class="page">
+      <div class="intro"><div><h1>Студия</h1><p>Превращайте длинные видео в короткие клипы с субтитрами.</p></div></div>
+      <section class="upload-panel" aria-labelledby="upload-title">
+        <div class="upload-art" aria-hidden="true"><canvas id="wave"></canvas></div>
+        <div class="upload-body">
+          <div class="upload-icon" data-icon="upload"></div>
+          <h2 id="upload-title">Загрузите видео</h2>
+          <p id="upload-caption">Перетащите файл сюда или выберите его на компьютере</p>
+          <input type="file" id="file" accept="video/*,.mov,.mkv,.avi" hidden>
+          <button class="button primary choose" id="choose"><i data-icon="plus"></i> Выбрать видео</button>
+          <span class="file-types">MP4, MOV, WEBM и другие · до 1 ГБ</span>
+          <p id="upload-status" role="status" hidden></p>
+        </div>
+      </section>
+      <section class="recent"><div class="section-head"><div><h2>Последние клипы</h2><p id="recent-note">Клипы из демонстрационного проекта</p></div><a href="#clips" class="button secondary">Все клипы <i data-icon="chevron"></i></a></div><div class="clip-grid" id="recent-clips"></div></section>
+    </section>
+    <section id="projects" class="page" hidden><div class="intro"><h1>Проекты</h1><p>История загрузок и статус обработки.</p></div><div id="project-list" class="project-list"></div></section>
+    <section id="clips" class="page" hidden><div class="intro"><h1>Мои клипы</h1><p>Просматривайте и скачивайте готовые фрагменты.</p></div><div class="clip-grid" id="all-clips"></div></section>
+    <section id="settings" class="page" hidden>
+      <div class="intro"><h1>API и модели</h1><p>Выберите провайдера и модель для каждой задачи.</p></div>
+      <form id="settings-form" class="settings">
+        <div class="panel"><div class="panel-heading"><i data-icon="captions"></i><div><h2>Распознавание речи</h2><p>Расшифровка аудио и таймкоды.</p></div><span class="task-state" id="speech-state"></span></div><div id="speech-fields" class="fields api-fields"></div></div>
+        <div class="panel"><div class="panel-heading"><i data-icon="sparkles"></i><div><h2>Поиск моментов</h2><p>Выбор удачных фрагментов по расшифровке.</p></div><span class="task-state" id="analysis-state"></span></div><div id="analysis-fields" class="fields api-fields"></div></div>
+        <div class="panel"><div class="panel-heading"><i data-icon="languages"></i><div><h2>Перевод субтитров</h2><p>Перевод реплик с сохранением таймкодов.</p></div><span class="task-state" id="translation-state"></span></div><div id="translation-fields" class="fields api-fields"></div></div>
+        <div id="voiceover-settings" class="panel"><div class="panel-heading"><i data-icon="voice"></i><div><h2>Озвучка клипов</h2><p>Модель читает исходный текст или перевод.</p></div><span class="task-state" id="voiceover-state"></span></div><div id="voiceover-fields" class="fields api-fields"></div></div>
+        <div class="panel"><div class="panel-heading"><i data-icon="filetext"></i><div><h2>Текст для публикации</h2><p>Заголовок, описание и хэштеги для каждого клипа.</p></div><span class="task-state" id="publishing-state"></span></div><div id="publishing-fields" class="fields api-fields"></div></div>
+        <div class="settings-footer"><p>Ключи хранятся до закрытия вкладки. Выбранные провайдеры получают аудио или текст для своей задачи.</p><button class="button primary" type="submit">Сохранить настройки</button></div>
+      </form>
+    </section>
+  </div>
+</main>
+<dialog id="upload-dialog">
+  <form id="upload-form">
+    <div class="dialog-head"><h2>Новый проект</h2><button type="button" class="icon-button close" aria-label="Закрыть"><i data-icon="x"></i></button></div>
+    <p id="selected-file" class="selected-file"></p>
+    <div class="fields dialog-fields">
+      <label>Формат<select name="format"><option value="9:16">Вертикальный · 9:16</option><option value="original">Как в исходном видео</option></select></label>
+      <label>Количество клипов<select name="count"><option>1</option><option>2</option><option selected>3</option><option>4</option><option>5</option></select></label>
+      <label>Целевая длительность<select name="length"><option value="20">≈ 20 секунд</option><option value="35" selected>≈ 35 секунд</option><option value="50">≈ 50 секунд</option></select></label>
+      <label>Язык речи<select name="language"><option value="">Автоопределение</option><option value="ru">Русский</option><option value="en">Английский</option></select></label>
+    </div>
+    <label class="check"><input name="subtitles" type="checkbox" checked> Добавить субтитры</label>
+    <div class="voice-options">
+      <div class="fields">
+        <label>ИИ-озвучка<select name="voiceMode"><option value="">Без озвучки</option><option value="original">Озвучить речь</option><option value="translated">Озвучить перевод</option></select></label>
+        <label id="voice-mix-field" hidden>Звук в клипе<select name="voiceMix"><option value="replace">Только ИИ-озвучка</option><option value="background">Оригинал тихо на фоне</option></select></label>
+      </div>
+      <p class="extra-hint" id="voice-hint"><a href="#settings/voiceover">Подключить API озвучки</a></p>
+    </div>
+    <details class="extra-options" id="extra-options">
+      <summary>Перевод и публикация</summary>
+      <div class="fields dialog-fields">
+        <label>Перевод субтитров<select name="translateTo"></select></label>
+        <label>Текст для платформы<select name="publishTo"></select></label>
+        <label id="post-language-field" hidden>Язык публикации<select name="postLanguage"></select></label>
+      </div>
+      <p class="extra-hint" id="extra-hint"><a href="#settings">Подключить дополнительные API</a></p>
+    </details>
+    <p id="upload-error" role="alert"></p>
+    <div class="dialog-actions"><button type="button" class="button secondary close">Отмена</button><button class="button primary" type="submit"><i data-icon="sparkles"></i> Создать клипы</button></div>
+  </form>
+</dialog>
+<dialog id="preview-dialog">
+  <div class="dialog-head"><h2 id="preview-title"></h2><button type="button" class="icon-button close" aria-label="Закрыть"><i data-icon="x"></i></button></div>
+  <video id="player" controls playsinline></video>
+  <p id="voice-preview" class="voice-preview" hidden></p>
+  <section id="post-preview" class="post-preview" hidden>
+    <div class="post-heading"><h3 id="post-platform"></h3><button class="button secondary" id="copy-post" type="button">Копировать текст</button></div>
+    <p class="post-title" id="post-title"></p>
+    <p id="post-description"></p>
+    <p class="post-tags" id="post-tags"></p>
+    <p id="copy-status" role="status"></p>
+  </section>
+  <div class="dialog-actions"><a class="button secondary" id="download-original-srt" download hidden>Исходный SRT</a><a class="button secondary" id="download-srt" download>Скачать SRT</a><a class="button primary" id="download-video" download><i data-icon="download"></i> Скачать MP4</a></div>
+</dialog>
+<div id="toast" role="status" hidden></div>
+</body></html>

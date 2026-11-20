@@ -1,4 +1,4 @@
-import {languages, modelField, platforms, providers, supportsTask, tasks} from './providers.js';
+import {languages, modelField, normalizeBaseURL, normalizeConnection, platforms, providers, supportsTask, tasks} from './providers.js';
 
 const $ = selector => document.querySelector(selector);
 const icons = {
@@ -43,9 +43,10 @@ try {
   const saved=JSON.parse(sessionStorage.getItem('kadr-api')||'{}');
   for(const kind of kinds)if(supportsTask(saved?.[kind]?.provider,kind))config[kind]=saved[kind];
 } catch {}
-const configured=kind=>Boolean(config[kind]?.key&&
-  (config[kind].provider==='deepl'||config[kind][modelField(kind)])&&
-  (kind!=='voiceover'||config[kind].voice));
+function configured(kind){
+  try { normalizeConnection(config[kind],kind); return true; }
+  catch { return false; }
+}
 const ready=()=>requiredKinds.every(configured);
 const saveConfig=()=>{try{sessionStorage.setItem('kadr-api',JSON.stringify(config));}catch{}};
 function toast(message){
@@ -64,11 +65,25 @@ function renderConnection(){
     state.textContent=saved?'Сохранено':requiredKinds.includes(kind)?'Для запуска':'Опционально';
   }
 }
+function connectionDraft(kind){
+  const {provider,model,key,base,voice}=taskFields[kind];
+  return {
+    provider:provider.value,
+    [modelField(kind)]:model.value.trim(),
+    key:key.value.trim(),
+    baseURL:base.value.trim(),
+    voice:voice?.value.trim()
+  };
+}
 function reusableKey(kind) {
-  const provider=taskFields[kind].provider.value;
-  return kinds.filter(other=>other!==kind).map(other=>taskFields[other])
-    .find(fields=>fields?.provider.value===provider&&fields.key.value.trim())?.key.value
-    ||Object.values(config).find(item=>item.provider===provider&&item.key)?.key||'';
+  const target=connectionDraft(kind);
+  const drafts=kinds.filter(other=>other!==kind&&taskFields[other]).map(connectionDraft);
+  return [...drafts,...Object.values(config)].find(item=>{
+    if(item.provider!==target.provider||!item.key)return false;
+    if(!Object.hasOwn(providers[target.provider],'baseURL'))return true;
+    try { return normalizeBaseURL(item.baseURL)===normalizeBaseURL(target.baseURL); }
+    catch { return false; }
+  })?.key||'';
 }
 function updateReuseButtons(){
   for(const kind of kinds){
@@ -84,6 +99,24 @@ function renderFields(kind){
   const available=Object.entries(providers).filter(([id])=>supportsTask(id,kind));
   el.innerHTML='<label>Провайдер<select name="'+kind+'-provider">'+(optional?'<option value="">Не подключён</option>':'')+available.map(([id,item])=>'<option value="'+id+'">'+item.title+'</option>').join('')+'</select></label><label>Идентификатор модели<input name="'+kind+'-model" maxlength="160" autocomplete="off"></label><label>API-ключ<input name="'+kind+'-key" type="password" maxlength="400" autocomplete="off" placeholder="Введите API-ключ"></label>';
   const [provider,model,key]=el.querySelectorAll('select,input');
+  const baseLabel=node('label','','Базовый URL');
+  const base=node('input');
+  Object.assign(base,{name:kind+'-base-url',type:'url',maxLength:400,autocomplete:'off',spellcheck:false,placeholder:'http://127.0.0.1:8000/v1'});
+  baseLabel.append(base);
+  provider.parentElement.after(baseLabel);
+  const discover=node('button','reuse-key','Загрузить список моделей');
+  discover.type='button';
+  model.parentElement.append(discover);
+  const modelList=node('select');
+  const listLabel=node('label','','Модели сервера');
+  listLabel.hidden=true;
+  listLabel.append(modelList);
+  el.append(listLabel);
+  const hint=node('p','api-hint');
+  const status=node('p','api-hint');
+  status.setAttribute('role','status');
+  el.append(hint,status);
+  const keyLabel=key.parentElement.firstChild;
   let voice;
   if(kind==='voiceover'){
     const voiceLabel=node('label','','Голос / Voice ID');
@@ -95,38 +128,88 @@ function renderFields(kind){
   const reuse=node('button','reuse-key','Использовать сохранённый ключ');
   reuse.type='button';reuse.hidden=true;
   key.parentElement.append(reuse);
-  taskFields[kind]={provider,model,key,reuse,voice};
+  taskFields[kind]={provider,model,key,reuse,voice,base};
   const drafts=new Map();
   let previous=config[kind]?.provider||(optional?'':'openrouter');
-  if(config[kind])drafts.set(previous,{model:config[kind][field],key:config[kind].key,voice:config[kind].voice});
+  if(config[kind])drafts.set(previous,config[kind]);
   provider.value=previous;
+  function clearDiscovery(){
+    listLabel.hidden=true;
+    modelList.replaceChildren();
+    status.textContent='';
+  }
   function fill(){
     const id=provider.value;
+    const entry=providers[id];
     const draft=drafts.get(id);
-    model.value=draft?.model??providers[id]?.[field]??'';
+    const custom=entry&&Object.hasOwn(entry,'baseURL');
+    base.value=custom?(draft?.baseURL??entry.baseURL):'';
+    baseLabel.hidden=!custom;
+    base.required=Boolean(custom);
+    model.value=draft?.[field]??entry?.[field]??'';
     key.value=draft?.key??'';
+    keyLabel.textContent=entry?.optionalKey?'API-ключ (если нужен)':'API-ключ';
     key.parentElement.hidden=!id;
-    key.required=optional&&Boolean(id);
+    key.required=Boolean(id)&&!entry.optionalKey&&(optional||Boolean(custom));
     model.parentElement.hidden=!id||id==='deepl';
     model.required=Boolean(id)&&id!=='deepl';
+    discover.hidden=!custom;
+    hint.textContent=entry?.hint??'';
+    el.classList.toggle('custom-api',Boolean(custom));
     if(voice){
-      voice.value=draft?.voice??providers[id]?.voice??'';
+      voice.value=draft?.voice??entry?.voice??'';
       voice.parentElement.hidden=!id;
       voice.required=Boolean(id);
     }
+    clearDiscovery();
   }
   fill();
   provider.addEventListener('change',()=>{
-    drafts.set(previous,{model:model.value,key:key.value,voice:voice?.value});
+    drafts.set(previous,{...connectionDraft(kind),provider:previous});
     previous=provider.value;
     fill();
     updateReuseButtons();
   });
-  key.addEventListener('input',updateReuseButtons);
+  for(const input of [key,base]){
+    input.addEventListener('input',()=>{
+      clearDiscovery();
+      updateReuseButtons();
+    });
+  }
   reuse.addEventListener('click',()=>{
     key.value=reusableKey(kind);
+    clearDiscovery();
     updateReuseButtons();
     key.focus();
+  });
+  modelList.addEventListener('change',()=>{
+    if(modelList.value)model.value=modelList.value;
+  });
+  discover.addEventListener('click',async()=>{
+    clearDiscovery();
+    let snapshot;
+    try { snapshot=normalizeConnection(connectionDraft(kind)); }
+    catch(error){status.textContent=error.message;return;}
+    const current=()=> {
+      try { return JSON.stringify(normalizeConnection(connectionDraft(kind)))===JSON.stringify(snapshot); }
+      catch { return false; }
+    };
+    discover.disabled=true;
+    status.textContent='Загружаем модели…';
+    try {
+      const result=await fetch('/api/models',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(snapshot)});
+      const data=await result.json();
+      if(!result.ok)throw Error(data.error);
+      if(!current())return;
+      if(!data.models.length){status.textContent='Сервер не вернул моделей. Установите модель или введите ID вручную.';return;}
+      setChoices(modelList,Object.fromEntries(data.models.map(id=>[id,id])),'Выберите модель');
+      modelList.value=data.models.includes(model.value)?model.value:'';
+      listLabel.hidden=false;
+      status.textContent='Выберите модель из списка или введите ID вручную.';
+      modelList.focus();
+    } catch(error){
+      if(current())status.textContent=error.message||'Не удалось загрузить список моделей.';
+    } finally {discover.disabled=false;}
   });
 }
 for(const kind of kinds)renderFields(kind);
@@ -136,16 +219,18 @@ $('#settings-form').addEventListener('submit',event=>{
   event.preventDefault();
   const next={};
   for(const kind of kinds){
-    const {provider,model,key,voice}=taskFields[kind];
-    if(provider.value){
-      next[kind]={provider:provider.value,[modelField(kind)]:model.value.trim(),key:key.value.trim()};
-      if(voice)next[kind].voice=voice.value.trim();
-      const missing=[model,key,voice].find(input=>input?.required&&!input.value.trim());
-      if(missing){
-        toast('Заполните настройки задачи «'+tasks[kind]+'».');
-        missing.focus();
-        return;
-      }
+    const draft=connectionDraft(kind);
+    if(!draft.provider)continue;
+    const provider=providers[draft.provider];
+    if(requiredKinds.includes(kind)&&!draft.key&&!provider.optionalKey&&!Object.hasOwn(provider,'baseURL')){
+      // Allow saving one built-in provider while the second required task is still unconfigured.
+      next[kind]=draft;
+      continue;
+    }
+    try { next[kind]=normalizeConnection(draft,kind); }
+    catch(error){
+      toast(tasks[kind]+'. '+error.message);
+      return;
     }
   }
   config=next;

@@ -17,8 +17,8 @@ export const fail = (message, status = 400) => Object.assign(new Error(message),
 async function call(config, path, payload, binary = false) {
   const {provider,key} = config;
   const title = providers[provider].title;
-  let base = endpoints[provider];
-  let auth = {Authorization:'Bearer '+key};
+  let base = config.baseURL ?? endpoints[provider];
+  let auth = key?{Authorization:'Bearer '+key}:{};
   if (provider === 'anthropic') auth = {'x-api-key':key,'anthropic-version':'2023-06-01'};
   if (provider === 'deepgram') auth = {Authorization:'Token '+key};
   if (provider === 'elevenlabs') auth = {'xi-api-key':key};
@@ -27,22 +27,24 @@ async function call(config, path, payload, binary = false) {
     base = key.endsWith(':fx') ? 'https://api-free.deepl.com/v2' : 'https://api.deepl.com/v2';
     auth = {Authorization:'DeepL-Auth-Key '+key};
   }
+  const list = payload === undefined;
   const isForm = payload instanceof FormData;
   const isAudio = Buffer.isBuffer(payload);
-  const headers = isForm ? auth : {...auth,'Content-Type':isAudio?'audio/wav':'application/json'};
+  const headers = list||isForm ? auth : {...auth,'Content-Type':isAudio?'audio/wav':'application/json'};
   let response;
   try {
     response = await fetch(base+path, {
-      method:'POST', headers,
+      method:list?'GET':'POST', headers,
       body:isForm||isAudio?payload:JSON.stringify(payload),
-      redirect:'error', signal:AbortSignal.timeout(150000)
+      redirect:'error', signal:AbortSignal.timeout(list?10000:config.baseURL?300000:150000)
     });
   } catch {
     throw fail('Не удалось получить ответ от '+title+'. Проверьте доступность API.');
   }
   if (!response.ok) {
     await response.body?.cancel().catch(()=>{});
-    throw fail('Ошибка API '+title+' ('+response.status+'). Проверьте ключ, модель и баланс.');
+    const hint=config.baseURL?(list&&response.status===404?'Этот сервер не отдаёт список моделей. Введите ID вручную.':'Проверьте URL, токен и поддержку этой задачи.'):'Проверьте ключ, модель и баланс.';
+    throw fail('Ошибка API '+title+' ('+response.status+'). '+hint);
   }
   if(binary) {
     const type=response.headers.get('content-type')||'';
@@ -53,6 +55,13 @@ async function call(config, path, payload, binary = false) {
     return Buffer.from(await response.arrayBuffer());
   }
   return response.json().catch(()=>{throw fail(title+' вернул ответ в неожиданном формате.');});
+}
+
+export async function listModels(config) {
+  const result=await call(config,'/models');
+  if(!Array.isArray(result?.data))throw fail('API вернул список моделей в неизвестном формате. Укажите ID вручную.');
+  const ids=result.data.map(item=>item?.id).filter(id=>typeof id==='string'&&id.trim()&&id.length<=160);
+  return [...new Set(ids)].slice(0,1000);
 }
 
 function parseArray(text, provider) {
@@ -67,13 +76,14 @@ function parseArray(text, provider) {
 }
 
 function responseText(content) {
-  if (typeof content === 'string') return content;
+  if (typeof content === 'string') return content.replace(/<think>[\s\S]*?<\/think>/gi,'').trim();
   if (!Array.isArray(content)) return '';
   return content.filter(part=>part.type==='text').map(part=>part.text).join('');
 }
 
 export async function chat(config, content, model = config.model) {
   const body = {model,messages:[{role:'user',content}]};
+  if(config.baseURL)body.stream=false;
   let text;
   if (config.provider === 'anthropic') {
     const result = await call(config,'/messages',{...body,max_tokens:4096});

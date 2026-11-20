@@ -8,8 +8,8 @@ import {execFile} from 'node:child_process';
 import {promisify} from 'node:util';
 import {fileURLToPath} from 'node:url';
 import {join} from 'node:path';
-import {languages, modelField, platforms, supportsTask, tasks} from './public/providers.js';
-import {chat, fail, transcribe, translate, writePost} from './provider-api.mjs';
+import {languages, normalizeConnection, platforms, tasks} from './public/providers.js';
+import {chat, fail, listModels, transcribe, translate, writePost} from './provider-api.mjs';
 import {renderVoice} from './voice-render.mjs';
 
 const root = fileURLToPath(new URL('.', import.meta.url));
@@ -171,19 +171,8 @@ function parseOptions(raw){
   const config={};
   const enabled=['speech','analysis',...(translation?['translation']:[]),...(publishing?['publishing']:[]),...(voiceMode?['voiceover']:[])];
   for(const kind of enabled){
-    const item=supplied[kind];
-    const key=typeof item?.key==='string'?item.key.trim():'';
-    const modelKey=modelField(kind);
-    const model=typeof item?.[modelKey]==='string'?item[modelKey].trim():'';
-    if(!item||!supportsTask(item.provider,kind)||!key||key.length>400||(item.provider!=='deepl'&&(!model||model.length>160))){
-      throw fail('Проверьте настройки задачи «'+tasks[kind]+'» в разделе «API и модели».');
-    }
-    config[kind]={provider:item.provider,key,[modelKey]:model};
-    if(kind==='voiceover'){
-      const voice=typeof item.voice==='string'?item.voice.trim():'';
-      if(!voice||voice.length>160)throw fail('Укажите голос модели в разделе «API и модели».');
-      config[kind].voice=voice;
-    }
+    try { config[kind]=normalizeConnection(supplied[kind],kind); }
+    catch(error){ throw fail(tasks[kind]+'. '+error.message); }
   }
   return {config,options:{count:[1,2,3,4,5].includes(supplied.count)?supplied.count:3,length:[20,35,50].includes(supplied.length)?supplied.length:35,language:['ru','en'].includes(supplied.language)?supplied.language:'',format:supplied.format==='original'?'original':'9:16',subtitles,translation,publishing,postLanguage,voiceMode,mixOriginal}};
 }
@@ -207,6 +196,21 @@ async function serve(req,res,file,download){
   if(req.method==='HEAD'||!info.size) return res.end();
   await pipeline(createReadStream(file,{start,end}),res);
 }
+async function readConnection(req) {
+  if(!/^application\/json(?:\s*;|$)/i.test(req.headers['content-type']??''))throw fail('Ожидается JSON.',415);
+  const chunks=[];
+  let size=0;
+  for await(const chunk of req.iterator({destroyOnReturn:false})){
+    size+=chunk.length;
+    if(size>4096)throw fail('Настройки превышают допустимый размер.',413);
+    chunks.push(chunk);
+  }
+  let supplied;
+  try { supplied=JSON.parse(Buffer.concat(chunks).toString('utf8')); }
+  catch{ throw fail('Некорректные настройки подключения.'); }
+  try { return normalizeConnection(supplied); }
+  catch(error){ throw fail(error.message); }
+}
 const server=createServer(async(req,res)=>{
   let upload;
   try {
@@ -214,6 +218,10 @@ const server=createServer(async(req,res)=>{
     const url=new URL(req.url,'http://localhost:'+port);
     if(req.method==='POST'){
       if(req.headers.origin&&req.headers.origin!=='http://'+req.headers.host) throw fail('Запрос с другого сайта отклонён.',403);
+      if(url.pathname==='/api/models'){
+        const connection=await readConnection(req);
+        return json(res,200,{models:await listModels(connection)});
+      }
       if(url.pathname!=='/api/projects') throw fail('Адрес не найден.',404);
       if(active) throw fail('Дождитесь обработки текущего проекта.',409);
       if(Number(req.headers['content-length'])>maxFile) throw fail('Максимальный размер файла — 1 ГБ.',413);
